@@ -15,8 +15,11 @@ import android.widget.AdapterView
 import android.widget.Toast
 import com.samtsai.ble_demo.R
 import com.samtsai.ble_demo.adapter.ScanListAdapter
+import com.samtsai.ble_demo.bluetooth.GattSpec
 import com.samtsai.ble_demo.extension.*
 import kotlinx.android.synthetic.main.activity_main.*
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class MainActivity : AppCompatActivity() {
     companion object {
@@ -102,6 +105,7 @@ class MainActivity : AppCompatActivity() {
     private val deviceListCallback = AdapterView.OnItemClickListener { parent, view, position, id ->
         scanListAdapter.getItem(position)?.run {
             //TODO: (6) connect the device
+            stopBleScan()
             connectGatt(this@MainActivity, true, bleConnectCallback)
         }
     }
@@ -121,7 +125,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         private fun initDataConfig(gatt: BluetoothGatt?) {
-            TODO("not implemented")
+            val thingyMotionService = GattSpec.Service.ThingyMotion
+            val thingyRawDataCharacteristic = GattSpec.Characteristic.ThingyGravityVector
+            gatt?.get(thingyMotionService, thingyRawDataCharacteristic)?.run {
+                initCharacteristicReading(gatt, this)
+            }
         }
 
         private fun initCharacteristicReading(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
@@ -151,8 +159,20 @@ class MainActivity : AppCompatActivity() {
         }
 
         private fun onHandleData(characteristic: BluetoothGattCharacteristic?) {
-            characteristic?.run {
-                TODO("not implemented")
+            when (characteristic?.uuid) {
+                GattSpec.Characteristic.ThingyGravityVector.uuid -> {
+                    val raw = characteristic.value
+                    val byteBuffer = ByteBuffer.wrap(raw)
+                    byteBuffer.order(ByteOrder.LITTLE_ENDIAN)
+                    val gx = byteBuffer.getFloat(0)
+                    val gy = byteBuffer.getFloat(4)
+                    val gz = byteBuffer.getFloat(8)
+
+                    runOnUiThread {
+                        val text = "(%3.2f, %3.2f, %3.2f)".format(gx, gy, gz)
+                        textView.text = text
+                    }
+                }
             }
         }
     }
