@@ -9,17 +9,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.util.Log
-import android.view.View
 import android.widget.AdapterView
 import android.widget.Toast
 import com.samtsai.ble_demo.R
 import com.samtsai.ble_demo.adapter.ScanListAdapter
+import com.samtsai.ble_demo.bluetooth.BleDataExtractor
 import com.samtsai.ble_demo.bluetooth.GattSpec
 import com.samtsai.ble_demo.extension.*
 import kotlinx.android.synthetic.main.activity_main.*
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 class MainActivity : AppCompatActivity() {
     companion object {
@@ -28,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     lateinit var scanListAdapter: ScanListAdapter
+    private var connectedDevice: BluetoothGatt? = null
 
     //TODO: (2) set up BLE - get BluetoothAdapter
     private val bluetoothAdapter: BluetoothAdapter? by lazy(LazyThreadSafetyMode.NONE) {
@@ -75,6 +73,12 @@ class MainActivity : AppCompatActivity() {
         stopBleScan()
     }
 
+    override fun onStop() {
+        super.onStop()
+
+        closeConnectedDevice()
+    }
+
     private fun stopBleScan() {
         bluetoothAdapter?.bluetoothLeScanner?.stopScan(leScanCallback)
     }
@@ -94,7 +98,7 @@ class MainActivity : AppCompatActivity() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             //TODO: (5) display scanned device
             result?.device?.run {
-                scanListAdapter.apply {
+                scanListAdapter.takeUnless { name.isNullOrBlank() }?.apply {
                     add(this@run)
                     notifyDataSetChanged()
                 }
@@ -106,7 +110,10 @@ class MainActivity : AppCompatActivity() {
         scanListAdapter.getItem(position)?.run {
             //TODO: (6) connect the device
             stopBleScan()
-            connectGatt(this@MainActivity, true, bleConnectCallback)
+            showToast(R.string.msg_ble_connecting)
+            if (connectedDevice == null) {
+                connectedDevice = connectGatt(this@MainActivity, true, bleConnectCallback)
+            }
         }
     }
 
@@ -114,19 +121,35 @@ class MainActivity : AppCompatActivity() {
         //TODO: (7) config the device to send/receive data
         override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
             when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> gatt?.discoverServices()
+                BluetoothProfile.STATE_CONNECTED -> {
+                    showToast(R.string.msg_ble_connected)
+                    gatt?.discoverServices()
+                }
+                else -> {
+                    closeConnectedDevice()
+                    val msg = getString(R.string.msg_ble_not_connected).replace("{0}", newState.toString())
+                    showToast(msg)
+                }
             }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
             when (status) {
-                BluetoothGatt.GATT_SUCCESS -> initDataConfig(gatt)
+                BluetoothGatt.GATT_SUCCESS -> {
+                    showToast(R.string.msg_ble_discovered)
+                    initDataConfig(gatt)
+                }
+                else -> {
+                    closeConnectedDevice()
+                    val msg = getString(R.string.msg_ble_not_discovered).replace("{0}", status.toString())
+                    showToast(msg)
+                }
             }
         }
 
         private fun initDataConfig(gatt: BluetoothGatt?) {
-            val thingyMotionService = GattSpec.Service.ThingyMotion
-            val thingyRawDataCharacteristic = GattSpec.Characteristic.ThingyGravityVector
+            val thingyMotionService = GattSpec.Service.DeviceInformation
+            val thingyRawDataCharacteristic = GattSpec.Characteristic.ModelNumberString
             gatt?.get(thingyMotionService, thingyRawDataCharacteristic)?.run {
                 initCharacteristicReading(gatt, this)
             }
@@ -159,21 +182,42 @@ class MainActivity : AppCompatActivity() {
         }
 
         private fun onHandleData(characteristic: BluetoothGattCharacteristic?) {
-            when (characteristic?.uuid) {
-                GattSpec.Characteristic.ThingyGravityVector.uuid -> {
-                    val raw = characteristic.value
-                    val byteBuffer = ByteBuffer.wrap(raw)
-                    byteBuffer.order(ByteOrder.LITTLE_ENDIAN)
-                    val gx = byteBuffer.getFloat(0)
-                    val gy = byteBuffer.getFloat(4)
-                    val gz = byteBuffer.getFloat(8)
-
-                    runOnUiThread {
-                        val text = "(%3.2f, %3.2f, %3.2f)".format(gx, gy, gz)
-                        textView.text = text
-                    }
+            val text = when (characteristic?.uuid) {
+                GattSpec.Characteristic.ModelNumberString.uuid -> {
+                    BleDataExtractor.getModelNumberString(characteristic)
                 }
+                GattSpec.Characteristic.ThingyGravityVector.uuid -> {
+                    val (gx, gy, gz) = BleDataExtractor.getThingyGravity(characteristic)
+                    "(%3.2f, %3.2f, %3.2f)".format(gx, gy, gz)
+                }
+                else -> ""
             }
+
+            runOnUiThread {
+                textView.text = text
+            }
+        }
+    }
+
+    //TODO: (9) close connected device
+    private fun closeConnectedDevice() {
+        connectedDevice?.close()
+        connectedDevice = null
+    }
+
+    /*
+        Other functions for help.
+     */
+
+    private fun showToast(res: Int) {
+        runOnUiThread {
+            showToast(res, Toast.LENGTH_LONG)
+        }
+    }
+
+    private fun showToast(text: String) {
+        runOnUiThread {
+            showToast(text, Toast.LENGTH_LONG)
         }
     }
 

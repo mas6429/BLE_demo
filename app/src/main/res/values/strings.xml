@@ -3,4 +3,9 @@
 
     <string name="msg_not_supported">BLE not supported</string>
     <string name="msg_ble_disabled">BLE is disabled</string>
+    <string name="msg_ble_connecting">BLE connecting</string>
+    <string name="msg_ble_connected">BLE connected</string>
+    <string name="msg_ble_not_connected">BLE not connected: {0}</string>
+    <string name="msg_ble_discovered">BLE service discovered</string>
+    <string name="msg_ble_not_discovered">BLE service not discovered: {0}</string>
 </resources>
